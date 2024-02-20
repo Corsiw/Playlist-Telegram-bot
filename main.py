@@ -1,5 +1,7 @@
 import telegram
 import psycopg2
+import redis
+import json
 
 from typing import Final
 from time import strftime, gmtime
@@ -97,12 +99,12 @@ async def start_menu_button(update: Update, context: CallbackContext):
                                                bot_message.message_id,
                                                caption=f"{update.callback_query.data}")
 
-        r = await db_get(f"""SELECT id
+        response = await db_get(f"""SELECT id
         FROM public.playlists
         WHERE name = '{update.callback_query.data}'
         """)
         context.user_data['cur_playlist_name'] = update.callback_query.data
-        context.user_data['cur_playlist_id'] = r[0][0]
+        context.user_data['cur_playlist_id'] = response[0][0]
 
         await build_playlist_menu(update, context)
         return PLAYLIST
@@ -111,12 +113,25 @@ async def start_menu_button(update: Update, context: CallbackContext):
 async def build_playlist_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["cur_added"] = 0
     bot_message = context.user_data["bot_message"]
+    
+    cache_key = f"{bot_message.chat.id}:{context.user_data['cur_playlist_id']}:info"
+    r_response = r.get(cache_key)
+    if r_response:
+        track_num, duration = r_response.split(", ")
+        duration = int(duration)
+        print("redis")
+    else:
+        print("db")
+        sql = f"""SELECT duration
+        FROM playlists_songs LEFT JOIN songs ON playlists_songs.song_id = songs.id
+        WHERE playlist_id = '{context.user_data['cur_playlist_id']}'"""
+        response = await db_get(sql)
+        track_num = len(response)
+        duration = sum([r[0] for r in response])
 
-    response = await db_get(f"""SELECT duration
-    FROM playlists_songs LEFT JOIN songs ON playlists_songs.song_id = songs.id
-    WHERE playlist_id = '{context.user_data['cur_playlist_id']}'""")
-    duration = sum([r[0] for r in response])
-    track_num = len(response)
+        r.set(cache_key, f"{track_num}, {duration}")
+        r.expire(cache_key, 30)
+    
 
     keyboard = [
         [telegram.InlineKeyboardButton("Список", callback_data=1),
@@ -167,16 +182,21 @@ async def playlist_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return ADD
 
         case "3":
-            sql = f"""SELECT name, author, song_id
-            FROM songs, playlists_songs
-            WHERE songs.id = playlists_songs.song_id AND playlists_songs.playlist_id = {context.user_data['cur_playlist_id']}
-            """
-            tracks = []
-            for track in await db_get(sql):
-                text = f"{track[1]} - {track[0]}"[:30]
-                tracks.append(telegram.InlineKeyboardButton(text, callback_data=track[2]))
+            cache_key = f"{bot_message.chat.id}:{context.user_data['cur_playlist_id']}:playlist_songs"
+            r_response = r.lrange(cache_key, 0, r.llen(cache_key))
+            if r_response:
+                tracks = [json.loads(r) for r in r_response]
+            else:
+                sql = f"""SELECT name, author, song_id
+                FROM songs, playlists_songs
+                WHERE songs.id = playlists_songs.song_id AND playlists_songs.playlist_id = {context.user_data['cur_playlist_id']}"""
+                tracks = await db_get(sql)
 
-            keyboard = [tracks[i:i + 2] for i in range(0, len(tracks), 2)]
+                [r.rpush(cache_key, json.dumps(track)) for track in tracks]
+                r.expire(cache_key, 30)
+
+            buttons = [(telegram.InlineKeyboardButton(f"{track[1]} - {track[0]}"[:30], callback_data=track[2])) for track in tracks]
+            keyboard = [buttons[i:i + 2] for i in range(0, len(buttons), 2)]
             keyboard.append([telegram.InlineKeyboardButton("Назад", callback_data="0")])
             reply_markup = telegram.InlineKeyboardMarkup(keyboard)
 
@@ -277,17 +297,26 @@ async def playlist_remove(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # TODO: вся индексация в бд с 1
     context.user_data["songs_to_remove"].append(update.callback_query.data)
 
-    sql = f"""SELECT name, author, song_id
-                FROM songs, playlists_songs
-                WHERE songs.id = playlists_songs.song_id AND playlists_songs.playlist_id = {context.user_data['cur_playlist_id']}
-                """
-    tracks = []
-    for track in await db_get(sql):
+    cache_key = f"{bot_message.chat.id}:{context.user_data['cur_playlist_id']}:playlist_songs"
+    r_response = r.lrange(cache_key, 0, r.llen(cache_key))
+    if r_response:
+        tracks = [json.loads(r) for r in r_response]
+    else:
+        sql = f"""SELECT name, author, song_id
+                    FROM songs, playlists_songs
+                    WHERE songs.id = playlists_songs.song_id AND playlists_songs.playlist_id = {context.user_data['cur_playlist_id']}"""
+        tracks = await db_get(sql)
+
+        [r.rpush(cache_key, json.dumps(track)) for track in tracks]
+        r.expire(cache_key, 30)
+
+    buttons = []
+    for track in tracks:
         if str(track[2]) not in context.user_data["songs_to_remove"]:
             text = f"{track[1]} - {track[0]}"[:30]
-            tracks.append(telegram.InlineKeyboardButton(text, callback_data=track[2]))
+            buttons.append(telegram.InlineKeyboardButton(text, callback_data=track[2]))
 
-    keyboard = [tracks[i:i + 2] for i in range(0, len(tracks), 2)]
+    keyboard = [buttons[i:i + 2] for i in range(0, len(buttons), 2)]
     keyboard.append([telegram.InlineKeyboardButton("Назад", callback_data="0")])
     reply_markup = telegram.InlineKeyboardMarkup(keyboard)
 
@@ -388,6 +417,7 @@ if __name__ == "__main__":
         password=postgres
         port=5432
     """)
+    r = redis.Redis(host="localhost", port=6379, decode_responses=True)
 
     main_handler = ConversationHandler(
         allow_reentry=True,
