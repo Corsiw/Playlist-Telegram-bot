@@ -2,6 +2,7 @@ import telegram
 import psycopg2
 import redis
 import json
+import os
 
 from typing import Final
 from time import strftime, gmtime
@@ -13,7 +14,9 @@ MAIN, PLAYLIST, ADD, REMOVE, RENAME, CREATE, DELETE = range(7)
 
 MAX_PLAYLISTS: Final = 10
 MAIN_PHOTO: Final = 'AgACAgIAAxkDAAIOR2SXbypx7QcAAaBoMCHs9zIFqXez6QACos8xGz8DwEgoHeM0iQMRjAEAAwIAA3MAAy8E'
-
+TOKEN = os.getenv('TOKEN')
+PG_USER = os.getenv('PG_USER')
+PG_PASSWORD = os.getenv('PG_PASSWORD')
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if "bot_message" in context.user_data.keys():
@@ -119,9 +122,7 @@ async def build_playlist_menu(update: Update, context: ContextTypes.DEFAULT_TYPE
     if r_response:
         track_num, duration = r_response.split(", ")
         duration = int(duration)
-        print("redis")
     else:
-        print("db")
         sql = f"""SELECT duration
         FROM playlists_songs LEFT JOIN songs ON playlists_songs.song_id = songs.id
         WHERE playlist_id = '{context.user_data['cur_playlist_id']}'"""
@@ -243,11 +244,11 @@ async def playlist_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
         sql = []
         for song in context.user_data["songs_to_add"]:
             if song.performer:
-                author = song.performer
+                author = song.performer.replace("'", "")
             else:
                 author = "Unknown"
             if song.title:
-                name = song.title
+                name = song.title.replace("'", "")
             else:
                 name = "Unknown"
 
@@ -405,18 +406,15 @@ async def db_set(sql):
 
 
 if __name__ == "__main__":
-    # TODO: УБРАТЬ ТОКЕН
-    application = Application.builder().token("6059715082:AAEBO0Gp05BigDY2IqyTAeXRkrvwKRzovMU").build()
+    application = Application.builder().token(TOKEN).build()
 
     # TODO: Connection pulling
-    # TODO: УБРАТЬ КОНФИГ
-    pg = psycopg2.connect("""
+    pg = psycopg2.connect(f"""
         host=localhost
         dbname=postgres
-        user=postgres
-        password=postgres
-        port=5432
-    """)
+        user={PG_USER}
+        password={PG_PASSWORD}
+        port=5432""")
     r = redis.Redis(host="localhost", port=6379, decode_responses=True)
 
     main_handler = ConversationHandler(
