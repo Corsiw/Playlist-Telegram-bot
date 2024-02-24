@@ -16,11 +16,13 @@ services:
     secrets:
       - tg-token
       - db-password
+      - redis_ACL
     networks:                                                                                      
       - my_network
     environment:
       - TOKEN_FILE=/run/secrets/tg-token
       - POSTGRES_PASSWORD_FILE=/run/secrets/db-password
+      - REDIS_ACL_FILE=/run/secrets/redis_ACL
 
 # The commented out section below is an example of how to define a PostgreSQL
 # database that your application can use. `depends_on` tells Docker Compose to
@@ -31,6 +33,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_started
   db:
     image: postgres
     restart: always
@@ -54,13 +58,39 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  redis:
+    image: redis
+    restart: always
+    ports:
+      - "6379:6379"
+    networks:                                                                                      
+      - my_network
+    secrets:
+      - redis_ACL
+    volumes:
+      - redis_data:/root/redis
+      - redis.conf:/usr/local/etc/redis
+    command:
+      redis-server /usr/local/etc/redis/redis.conf
+    # environment:
+    #   - REDIS_PORT=6379
+    #   - REDIS_DATABASES=16
+
 volumes:
   db_data:
+  redis.conf:
+  redis_data:
+
 secrets:
+  # Tg-token, postrgesql password and users.acl has to be specified in listed files.
   tg-token:
-    file: token.txt
+    file: docker_secrets/token.txt
   db-password:
-    file: db/password.txt
+    file: docker_secrets/db_password.txt
+  redis_ACL:
+    file: docker_secrets/users.acl
+
 networks:                                                                                          
   my_network:                                                                                      
     ~   

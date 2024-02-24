@@ -18,6 +18,19 @@ with open(os.getenv('TOKEN_FILE'), "r") as f:
     TOKEN = f.readline()
 with open(os.getenv('POSTGRES_PASSWORD_FILE'), "r") as f:
     PG_PASSWORD = f.readline()
+with open(os.getenv('REDIS_ACL_FILE'), "r") as f:
+    s = f.readline()
+    res = ""
+    f = False
+    for char in s:
+        if f:
+            if char == " ":
+                break
+            else:
+                res += char
+        elif char == ">":
+            f = True
+    REDIS_PASSWORD = res
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if "bot_message" in context.user_data.keys():
@@ -416,7 +429,7 @@ if __name__ == "__main__":
             user=postgres
             password={PG_PASSWORD}
             port=5432""")
-        r = redis.Redis(host="localhost", port=6379, decode_responses=True)
+        r = redis.Redis(host="redis", port=6379, password=REDIS_PASSWORD, decode_responses=True)
     except Exception as e:
         print("Connection error:", f"{PG_PASSWORD}", e)
 

@@ -167,9 +167,7 @@ cython_debug/
 # compose.yaml
 # Dockerfile
 README.Docker.md
+docker_secrets
 
 # Other
 legacy/
-requirements.txt
-token.txt
-db/
