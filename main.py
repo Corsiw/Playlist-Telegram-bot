@@ -14,9 +14,10 @@ MAIN, PLAYLIST, ADD, REMOVE, RENAME, CREATE, DELETE = range(7)
 
 MAX_PLAYLISTS: Final = 10
 MAIN_PHOTO: Final = 'AgACAgIAAxkDAAIOR2SXbypx7QcAAaBoMCHs9zIFqXez6QACos8xGz8DwEgoHeM0iQMRjAEAAwIAA3MAAy8E'
-TOKEN = os.getenv('TOKEN')
-PG_USER = os.getenv('PG_USER')
-PG_PASSWORD = os.getenv('PG_PASSWORD')
+with open(os.getenv('TOKEN_FILE'), "r") as f:
+    TOKEN = f.readline()
+with open(os.getenv('POSTGRES_PASSWORD_FILE'), "r") as f:
+    PG_PASSWORD = f.readline()
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if "bot_message" in context.user_data.keys():
@@ -50,7 +51,7 @@ async def build_start_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     keys = [telegram.InlineKeyboardButton(pl[0], callback_data=pl[0]) for pl in await db_get(sql)]
     keyboard = [keys[i:i + 2] for i in range(0, len(keys), 2)]
-    keyboard.append([telegram.InlineKeyboardButton(f"Новый плейлист", callback_data="NEW_PLAYLIST")])
+    keyboard.append([telegram.InlineKeyboardButton("Новый плейлист", callback_data="NEW_PLAYLIST")])
     reply_markup = telegram.InlineKeyboardMarkup(keyboard)
 
     await context.bot.edit_message_caption(bot_message.chat.id,
@@ -407,15 +408,17 @@ async def db_set(sql):
 
 if __name__ == "__main__":
     application = Application.builder().token(TOKEN).build()
-
     # TODO: Connection pulling
-    pg = psycopg2.connect(f"""
-        host=localhost
-        dbname=postgres
-        user={PG_USER}
-        password={PG_PASSWORD}
-        port=5432""")
-    r = redis.Redis(host="localhost", port=6379, decode_responses=True)
+    try:
+        pg = psycopg2.connect(f"""
+            host=db
+            dbname=postgres
+            user=postgres
+            password={PG_PASSWORD}
+            port=5432""")
+        r = redis.Redis(host="localhost", port=6379, decode_responses=True)
+    except Exception as e:
+        print("Connection error:", f"{PG_PASSWORD}", e)
 
     main_handler = ConversationHandler(
         allow_reentry=True,

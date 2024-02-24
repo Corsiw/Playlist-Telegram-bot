@@ -162,11 +162,14 @@ cython_debug/
 # VS Code
 .vscode/
 
-#other
-old_ver
-misc
-1234.py
-12345.py
-123456.py
-playlists.json
-playlists_info.json
+# Docker
+# .dockerignore
+# compose.yaml
+# Dockerfile
+README.Docker.md
+
+# Other
+legacy/
+requirements.txt
+token.txt
+db/
